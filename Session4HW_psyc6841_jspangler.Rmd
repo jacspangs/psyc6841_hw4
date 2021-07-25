@@ -1,0 +1,929 @@
+---
+title: "Session 4 Homework - PSYC6841 - Jaclyn Spangler"
+output: html_notebook
+---
+
+# Objective
+Using the Honeywell Glassdoor Comments from Class, create at least 20 comment categories. These can include subcategories (e.g. Benefits-Healthcare, Benefits-PTO, etc.). Run these over both the Pros and the Cons. You can create 2 different Excel sheets or 1 Excel sheet with one tab for Pros and one tab for Cons.
+
+## Resources
+
+* [link1](https://stackoverflow.com/questions/26319567/use-grepl-to-search-either-of-multiple-substrings-in-a-text)
+* [lnk2](https://stackoverflow.com/questions/5823503/pattern-matching-using-a-wildcard)
+* [link3](https://stackoverflow.com/questions/31421077/r-wildcard-matching-for-certain-number-of-terms)
+* [link4](https://www.regular-expressions.info/rlanguage.html)
+
+# Notebook Setup
+
+```{r Libraries}
+tryCatch(require(pacman),finally=utils:::install.packages(pkgs='pacman',repos='http://cran.r-project.org'));
+require(pacman)
+
+pacman::p_load(openxlsx, 
+               tidyverse, 
+               devtools,
+               conflicted,
+               lubridate,
+               sentimentr)
+
+#Loading libraries
+library(openxlsx)
+library(tidyverse)
+library(devtools)
+library(conflicted)
+library(lubridate)
+library(sentimentr)
+# devtools::install_github("mguideng/gdscrapeR")
+# library(gdscrapeR)
+
+conflict_prefer("filter", "dplyr")
+```
+
+
+# Loading & Configuring Data 
+
+```{r Honeywell Glassdoor Data}
+library(readr)
+Data <- read_csv("C:/Users/Jaclyn/Desktop/LearningR/AdvAnalytics/00_data/glassdoortest1.csv")
+```
+
+
+```{r Col Names}
+colnames(Data)
+```
+
+
+```{r Name ID variable}
+#Change X1 to ID
+
+Data <- Data %>%
+    rename(ID = X1)
+```
+
+## Check for Duplicates
+
+I noticed there were a lot of duplicates while working with this data. Removing the duplicate entries. 
+
+```{r}
+#Checking for duplicates on multiple columns
+#Specifically on multiple entries per agent per month
+which(duplicated(Data[c("pros", "cons")]))
+
+index <- which(duplicated(Data[c("pros", "cons")]))
+
+Data <- Data[-index, ]
+
+```
+
+
+```{r Dataframes}
+# Creating new dataframes for Pros & Cons
+
+df_pro_comments <- Data %>%
+    select(c(ID, pros)) %>%
+    filter(!is.na(pros)) %>%
+    rename('comments' = 'pros')
+
+###
+df_con_comments <- Data %>%
+    select(c(ID, cons)) %>%
+    filter(!is.na(cons)) %>%
+    rename('comments' = 'cons')
+
+```
+
+
+```{r Lowercase}
+#Converting to lower case
+
+df_pro_comments <- df_pro_comments %>%
+    mutate(comments = tolower(comments))
+
+df_con_comments <- df_con_comments %>%
+    mutate(comments = tolower(comments))
+
+```
+
+
+```{r Line breaks}
+#Remove all line breaks
+
+#From: https://stackoverflow.com/questions/21781014/remove-all-line-breaks-enter-symbols-from-the-string-using-r
+
+df_pro_comments$comments <- gsub("[\r\n]", "", df_pro_comments$comments)
+
+df_pro_comments <- df_pro_comments %>%
+    select(ID, comments) %>%
+    na.omit()
+
+###
+df_con_comments$comments <- gsub("[\r\n]", "", df_con_comments$comments)
+
+df_con_comments <- df_con_comments %>%
+    select(ID, comments) %>%
+    na.omit()
+
+```
+
+
+# Code Optimization - Start Time
+
+```{r Start Time}
+#Creating a beginning using `now` from lubridate.
+#This is helpful when you get to several categories using a brute force search so that you (and others if they run you script) know about how long it will take to run.
+
+#After we run everything, we will create `end_time <- now()` along with `print(difftime(end_time, start_time))` as the last line of code after everything we are concerned about has run.
+
+start_time <- now()
+```
+
+
+
+# Creating Categories
+
+## Category 1: Healthcare
+
+```{r Health Benefits}
+## IDENTIFY SEARCH PARAMETERS ##
+health <- c('\\brx\\b', #this will only get the word "rx" and nothing else
+              '^.*medic.*$', #this will get medic, medicine, medical, etc.
+              '(?=.*bene)(?=.*(?:health))', #This will get benefits, beneficial, benefit, etc. but only if it occurs with health, healthy, healthcare, in the same comment
+              '(?=.*coverage)(?=.*(?:medic|deduct|prescrip|insur|drug|health|dependent))', #This will get coverage, overages, etc. as long as some form of medic, deduct, prescription, etc. occur in the same comment
+                    '\\b(?:health\\W+(?:\\w+\\W+){0,1}?care)\\b', #this will only get health care or healthcare (e.g. health and care must occur within one word)
+                    '\\bhealthcare\\b', #this will only get the word "healthcare". If there is a space between them, it won't pick it up.
+              '\\bhealth\\s?care\\b', #this will get the word "healthcare" or "health care" as the \\s? indicates zero or one whitespace character.
+              '\\b(?:medical\\W+(?:\\w+\\W+){0,3}?benefits|benefits\\W+(?:\\w+\\W+){0,3}?medical)\\b', #This will get medical benefits or benefits medical as long as they occur within 3 word of each other.
+              '^.*vacation.*$',
+              '\\bpto\\b',  #just the word pto
+              '\\bbenefits\\b' #just the word benefits
+              )
+
+## CREATE PATTERN ##
+health_pattern <- paste(health, collapse = "|") #Benefits pattern for searching
+
+## PRO- SEARCH & CREATE ##
+health_comments_pro <- as.data.frame(df_pro_comments[grep(health_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+TEST_pro <- df_pro_comments %>%
+    mutate(health = ifelse(comments %in% health_comments_pro$comments, "Y",
+                             "N")) 
+## CON- SEARCH & CREATE ##
+health_comments_con <- as.data.frame(df_con_comments[grep(health_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- df_con_comments %>%
+    mutate(health = ifelse(comments %in% health_comments_con$comments, "Y",
+                             "N"))
+```
+
+## Category 2: Insurance
+
+```{r Insurance}
+## IDENTIFY SEARCH PARAMETERS ##
+insurance <- c('(?=.*insur)(?=.*(?:medic|dental|life|vision|supplement|disabl))',
+                        '\\b(?:insurance\\W+(?:\\w+\\W+){0,1}?premium)\\b',
+                        '\\binsurance\\b'
+                        )
+
+## CREATE PATTERN ##
+insurance_pattern <- paste(insurance, collapse = "|") 
+
+## PRO- SEARCH & CREATE ##
+insurance_comments_pro <- as.data.frame(df_pro_comments[grep(insurance_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(insurance = ifelse(comments %in%
+                                         insurance_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+insurance_comments_con <- as.data.frame(df_con_comments[grep(insurance_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(insurance = ifelse(comments %in%
+                                         insurance_comments_con$comments,
+                                       "Y",
+                                       "N"))
+```
+
+## Category 3: Compensation
+
+```{r Compensation}
+## IDENTIFY SEARCH PARAMETERS ##
+compensation <- c('\\bsalary\\b', 
+              '^.*compen.*$',
+              '\\bpay\\b',
+              '\\bwage\\b' 
+                     )
+
+## CREATE PATTERN ##
+compensation_pattern <- paste(compensation, collapse = "|") #Create category pattern
+
+## PRO- SEARCH & CREATE ##
+compensation_comments_pro <- as.data.frame(df_pro_comments[grep(compensation_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(compensation = ifelse(comments %in%
+                                         compensation_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+compensation_comments_con <- as.data.frame(df_con_comments[grep(compensation_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(compensation = ifelse(comments %in%
+                                         compensation_comments_con$comments,
+                                       "Y",
+                                       "N"))
+```
+
+## Category 4: Culture
+
+```{r Culture}
+## IDENTIFY SEARCH PARAMETERS ##
+culture <- c('\\bculture\\b',
+             '^.*culture.*$',
+             '\\bwork\\s?environment\\b',
+             '\\bworking\\s?environment\\b',
+             '\\*?workplace?'
+                     )
+
+## CREATE PATTERN ##
+culture_pattern <- paste(culture, collapse = "|") #Create category pattern
+
+## PRO- SEARCH & CREATE ##
+culture_comments_pro <- as.data.frame(df_pro_comments[grep(culture_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(culture = ifelse(comments %in% culture_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+culture_comments_con <- as.data.frame(df_con_comments[grep(culture_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(culture = ifelse(comments %in% culture_comments_con$comments,
+                                       "Y",
+                                       "N"))
+```
+
+## Category 5: Leadership
+
+```{r Leadership}
+## IDENTIFY SEARCH PARAMETERS ##
+leadership <- c('\\bceo\\b',
+                '\\*?leadership?',
+                '\\*?leader?',
+                '\\*?executive*\\b'
+                     )
+
+## CREATE PATTERN ##
+leadership_pattern <- paste(leadership, collapse = "|") #Create category pattern
+
+## PRO- SEARCH & CREATE ##
+leadership_comments_pro <- as.data.frame(df_pro_comments[grep(leadership_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(leadership = ifelse(comments %in% leadership_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+leadership_comments_con <- as.data.frame(df_con_comments[grep(leadership_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(leadership = ifelse(comments %in% leadership_comments_con$comments,
+                                       "Y",
+                                       "N"))
+```
+
+## Category 6: Management
+Manager, Boss, direct manager, upper management
+
+```{r Management}
+## IDENTIFY SEARCH PARAMETERS ##
+management <- c('\\bmanagement\\b',
+                '\\*?management?',
+                '\\bmanager*\\b',
+                '\\bboss\\b'
+                )
+
+## CREATE PATTERN ##
+management_pattern <- paste(management, collapse = "|") #Create category pattern
+
+## PRO- SEARCH & CREATE ##
+management_comments_pro <- as.data.frame(df_pro_comments[grep(management_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(management = ifelse(comments %in% management_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+management_comments_con <- as.data.frame(df_con_comments[grep(management_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(management = ifelse(comments %in% management_comments_con$comments,
+                                       "Y",
+                                       "N"))
+```
+
+## Category 7: Career Advancement
+Move around, career, mobility, promotion, promoted, Room to grow
+
+```{r Career}
+## IDENTIFY SEARCH PARAMETERS ##
+career <- c('\\bcareer\\b',
+            '\\bmobility\\b',
+            '\\bpromotion\\b',
+            '^.*promot.*$',
+            'room to grow'
+                     )
+
+## CREATE PATTERN ##
+career_pattern <- paste(career, collapse = "|") #Create category pattern
+
+## PRO- SEARCH & CREATE ##
+career_comments_pro <- as.data.frame(df_pro_comments[grep(career_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(career = ifelse(comments %in% career_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+career_comments_con <- as.data.frame(df_con_comments[grep(career_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(career = ifelse(comments %in% career_comments_con$comments,
+                                       "Y",
+                                       "N"))
+```
+
+## Category 8: Work Life Balance
+Work life, , Burnout, Work balance, Flexibility, Freedom
+
+```{r Work Life Balance}
+## IDENTIFY SEARCH PARAMETERS ##
+wlb <- c('\\bhours\\b',
+         '\\bburnout\\b',
+         '\\bflexibility\\b',
+         '\\bfreedom\\b',
+         'work balance',
+         'work life',
+         '^.*flex.*$'
+                     )
+
+## CREATE PATTERN ##
+wlb_pattern <- paste(wlb, collapse = "|") #Create category pattern
+
+## PRO- SEARCH & CREATE ##
+wlb_comments_pro <- as.data.frame(df_pro_comments[grep(wlb_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(wlb = ifelse(comments %in% wlb_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+wlb_comments_con <- as.data.frame(df_con_comments[grep(wlb_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(wlb = ifelse(comments %in% wlb_comments_con$comments,
+                                       "Y",
+                                       "N"))
+```
+
+## Category 9: Morale
+
+```{r Morale}
+## IDENTIFY SEARCH PARAMETERS ##
+morale <- c('\\bmorale\\b'
+                     )
+
+## CREATE PATTERN ##
+morale_pattern <- paste(morale, collapse = "|") #Create category pattern
+
+## PRO- SEARCH & CREATE ##
+morale_comments_pro <- as.data.frame(df_pro_comments[grep(morale_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(morale = ifelse(comments %in% morale_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+morale_comments_con <- as.data.frame(df_con_comments[grep(morale_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(morale = ifelse(comments %in% morale_comments_con$comments,
+                                       "Y",
+                                       "N"))
+```
+
+## Category 10: Product & Innovation
+Product, Technology, Systems, Innovation / Innovative
+
+```{r Product}
+## IDENTIFY SEARCH PARAMETERS ##
+product <- c('\\bproduct\\b',
+             '\\btechnology\\b',
+             '\\bsystems\\b',
+             '\\binnovat.*$'
+                     )
+
+## CREATE PATTERN ##
+product_pattern <- paste(product, collapse = "|") #Create category pattern
+
+## PRO- SEARCH & CREATE ##
+product_comments_pro <- as.data.frame(df_pro_comments[grep(product_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(product = ifelse(comments %in% product_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+product_comments_con <- as.data.frame(df_con_comments[grep(product_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(product = ifelse(comments %in% product_comments_con$comments,
+                                       "Y",
+                                       "N"))
+```
+
+
+## Category 11: Work from Home
+Work from home, Remote, Telecommute
+
+```{r WFH}
+## IDENTIFY SEARCH PARAMETERS ##
+wfh <- c('work from home',
+         '\\bremote\\b',
+         '\\btelecommut.*$'
+                     )
+
+## CREATE PATTERN ##
+wfh_pattern <- paste(wfh, collapse = "|") #Create category pattern
+
+## PRO- SEARCH & CREATE ##
+wfh_comments_pro <- as.data.frame(df_pro_comments[grep(wfh_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(wfh = ifelse(comments %in% wfh_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+wfh_comments_con <- as.data.frame(df_con_comments[grep(wfh_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(wfh = ifelse(comments %in% wfh_comments_con$comments,
+                                       "Y",
+                                       "N"))
+```
+
+## Category 12: Co-Workers
+People, Colleagues, co-workers
+
+```{r Colleagues }
+## IDENTIFY SEARCH PARAMETERS ##
+colleagues <- c('\\bcolleague.*$',
+                '\\bco\\D?work.*$',
+                '\\bpeople\\b'
+                     )
+
+## CREATE PATTERN ##
+colleagues_pattern <- paste(colleagues, collapse = "|") #Create category pattern
+
+## PRO- SEARCH & CREATE ##
+colleagues_comments_pro <- as.data.frame(df_pro_comments[grep(colleagues_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(colleagues = ifelse(comments %in% colleagues_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+colleagues_comments_con <- as.data.frame(df_con_comments[grep(colleagues_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(colleagues = ifelse(comments %in% colleagues_comments_con$comments,
+                                       "Y",
+                                       "N"))
+```
+
+## Category 13: Mission & Goals
+Mission, Goals, Strategy
+
+```{r Mission}
+## IDENTIFY SEARCH PARAMETERS ##
+mission <- c('\\bmission\\b',
+             '\\bgoals\\b',
+             '\\bstrateg.*$'
+                     )
+
+## CREATE PATTERN ##
+mission_pattern <- paste(mission, collapse = "|") #Create category pattern
+
+## PRO- SEARCH & CREATE ##
+mission_comments_pro <- as.data.frame(df_pro_comments[grep(mission_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(mission = ifelse(comments %in% mission_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+mission_comments_con <- as.data.frame(df_con_comments[grep(mission_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(mission = ifelse(comments %in% mission_comments_con$comments,
+                                       "Y",
+                                       "N"))
+```
+
+## Category 14: Overtime
+
+```{r Overtime}
+## IDENTIFY SEARCH PARAMETERS ##
+overtime <- c('\\bovertime\\b'
+                     )
+
+## CREATE PATTERN ##
+overtime_pattern <- paste(overtime, collapse = "|") #Create category pattern
+
+## PRO- SEARCH & CREATE ##
+overtime_comments_pro <- as.data.frame(df_pro_comments[grep(overtime_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(overtime = ifelse(comments %in% overtime_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+overtime_comments_con <- as.data.frame(df_con_comments[grep(overtime_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(overtime = ifelse(comments %in% overtime_comments_con$comments,
+                                       "Y",
+                                       "N"))
+```
+
+## Category 15: Interesting Work
+
+```{r }
+## IDENTIFY SEARCH PARAMETERS ##
+interesting <- c('\\b(?:interesting|meaningful|challenging\\W+(?:\\w+\\W+){0,3}?work\\D?|projects\\W+(?:\\w+\\W+){0,3}?medical)\\b'
+                     )
+
+## CREATE PATTERN ##
+interesting_pattern <- paste(interesting, collapse = "|") #Create category pattern
+
+## PRO- SEARCH & CREATE ##
+interesting_comments_pro <- as.data.frame(df_pro_comments[grep(interesting_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(interesting = ifelse(comments %in% interesting_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+interesting_comments_con <- as.data.frame(df_con_comments[grep(interesting_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(interesting = ifelse(comments %in% interesting_comments_con$comments,
+                                       "Y",
+                                       "N"))
+```
+
+## Category 16: Team Dynamics
+team, teamwork
+
+```{r }
+## IDENTIFY SEARCH PARAMETERS ##
+team <- c('\\bteamwork\\b',
+          '\\bteam\\D?work.*$',
+          '\\bteams?'
+                     )
+
+## CREATE PATTERN ##
+team_pattern <- paste(team, collapse = "|") #Create category pattern
+
+## PRO- SEARCH & CREATE ##
+team_comments_pro <- as.data.frame(df_pro_comments[grep(team_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(team = ifelse(comments %in% team_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+team_comments_con <- as.data.frame(df_con_comments[grep(team_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(team = ifelse(comments %in% team_comments_con$comments,
+                                       "Y",
+                                       "N"))
+```
+
+## Category 17: Resources
+Resources, Funding
+
+```{r Resources}
+## IDENTIFY SEARCH PARAMETERS ##
+resources <- c('\\bresources?',
+                '\\bfunding\\b'
+                     )
+
+## CREATE PATTERN ##
+resources_pattern <- paste(resources, collapse = "|") #Create category pattern
+
+## PRO- SEARCH & CREATE ##
+resources_comments_pro <- as.data.frame(df_pro_comments[grep(resources_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(resources = ifelse(comments %in% resources_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+resources_comments_con <- as.data.frame(df_con_comments[grep(resources_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(resources = ifelse(comments %in% resources_comments_con$comments,
+                                       "Y",
+                                       "N"))
+```
+
+## Category 18: Process
+Efficiency, Inefficiencies, Red tape, Beauracracy, Efficient
+
+```{r Process}
+## IDENTIFY SEARCH PARAMETERS ##
+process <- c('\\befficien.*$',
+             '\\bineffecien.*$',
+             '\\bred.tape\\b',
+             '\\bbeauracra\\*?',
+             '\\bprocesse?s?',
+             '\\bdecision.making\\b'
+                     )
+
+## CREATE PATTERN ##
+process_pattern <- paste(process, collapse = "|") #Create category pattern
+
+## PRO- SEARCH & CREATE ##
+process_comments_pro <- as.data.frame(df_pro_comments[grep(process_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(process = ifelse(comments %in% process_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+process_comments_con <- as.data.frame(df_con_comments[grep(process_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(process = ifelse(comments %in% process_comments_con$comments,
+                                       "Y",
+                                       "N"))
+```
+
+## Category 19: RIFs & Furloughs
+RIF, furlough
+
+```{r RIF}
+## IDENTIFY SEARCH PARAMETERS ##
+rif <- c('\\brif*?',
+         '\\bfurlough*?'
+                     )
+
+## CREATE PATTERN ##
+rif_pattern <- paste(rif, collapse = "|") #Create category pattern
+
+## PRO- SEARCH & CREATE ##
+rif_comments_pro <- as.data.frame(df_pro_comments[grep(rif_pattern, df_pro_comments$comments, value = FALSE, perl = TRUE),]) #Search Pro Comments
+
+
+TEST_pro <- TEST_pro %>%
+    mutate(rif = ifelse(comments %in% rif_comments_pro$comments,
+                                       "Y",
+                                       "N"))
+## CON- SEARCH & CREATE ##
+rif_comments_con <- as.data.frame(df_con_comments[grep(rif_pattern, df_con_comments$comments, value = FALSE, perl = TRUE),]) #Search Con Comments
+
+TEST_con <- TEST_con %>%
+    mutate(rif = ifelse(comments %in% rif_comments_con$comments,
+                                       "Y",
+                                       "N"))
+
+```
+
+## Category 20: Other 
+
+```{r Other}
+TEST_pro <- TEST_pro %>%
+    mutate(Other = apply(TEST_pro, 1, function(y){ ifelse("Y" %in% y, "N", "Y")}))
+
+TEST_con <- TEST_con %>%
+    mutate(Other = apply(TEST_con, 1, function(y){ ifelse("Y" %in% y, "N", "Y")}))
+```
+
+
+``` {r Measure Time}
+#CLOSE OUT
+end_time <- now()
+
+print(difftime(end_time, start_time))
+```
+
+
+# Combining Subcategories into Meta Categories
+
+```{r}
+#Export for categorization
+# write.xlsx(TEST_con, "C:/Users/Jaclyn/Desktop/test_con.xlsx", sheetName = "Sheet1", 
+#   col.names = TRUE, row.names = TRUE, append = FALSE)
+```
+
+```{r Categorization}
+#NESTED IF/ELSE TO TURN INTO CATEGORIES
+
+#PRO
+TEST_pro <- TEST_pro %>%
+    mutate(Benefits = ifelse(health == "Y", "Y",
+                             ifelse(insurance == "Y", "Y",
+                                    ifelse(compensation == "Y", "Y",
+                                           ifelse(wfh == "Y", "Y",
+                                     "N"))))) 
+TEST_pro <- TEST_pro %>%
+    mutate(Climate = ifelse(culture == "Y", "Y",
+                             ifelse(career == "Y", "Y",
+                                    ifelse(wlb == "Y", "Y",
+                                           ifelse(morale == "Y", "Y",
+                                                  ifelse(rif == "Y", "Y",
+                                     "N")))))) 
+TEST_pro <- TEST_pro %>%
+    mutate(DailyWork = ifelse(colleagues == "Y", "Y",
+                             ifelse(overtime == "Y", "Y",
+                                    ifelse(interesting == "Y", "Y",
+                                           ifelse(resources == "Y", "Y",
+                                                  ifelse(team == "Y", "Y",
+                                                         ifelse(process == "Y", "Y",
+                                     "N"))))))) 
+TEST_pro <- TEST_pro %>%
+    mutate(Company = ifelse(leadership == "Y", "Y",
+                             ifelse(management == "Y", "Y",
+                                    ifelse(product == "Y", "Y",
+                                           ifelse(mission == "Y", "Y",
+                                     "N"))))) 
+
+#CON
+TEST_con <- TEST_con %>%
+    mutate(Benefits = ifelse(health == "Y", "Y",
+                             ifelse(insurance == "Y", "Y",
+                                    ifelse(compensation == "Y", "Y",
+                                           ifelse(wfh == "Y", "Y",
+                                     "N"))))) 
+TEST_con <- TEST_con %>%
+    mutate(Climate = ifelse(culture == "Y", "Y",
+                             ifelse(career == "Y", "Y",
+                                    ifelse(wlb == "Y", "Y",
+                                           ifelse(morale == "Y", "Y",
+                                                  ifelse(rif == "Y", "Y",
+                                     "N")))))) 
+TEST_con <- TEST_con %>%
+    mutate(DailyWork = ifelse(colleagues == "Y", "Y",
+                             ifelse(overtime == "Y", "Y",
+                                    ifelse(interesting == "Y", "Y",
+                                           ifelse(resources == "Y", "Y",
+                                                  ifelse(team == "Y", "Y",
+                                                         ifelse(process == "Y", "Y",
+                                     "N"))))))) 
+TEST_con <- TEST_con %>%
+    mutate(Company = ifelse(leadership == "Y", "Y",
+                             ifelse(management == "Y", "Y",
+                                    ifelse(product == "Y", "Y",
+                                           ifelse(mission == "Y", "Y",
+                                     "N"))))) 
+
+```
+
+```{r}
+#REORDER COLUMNS BY CATEGORY
+colnames(TEST_con)
+```
+
+```{r}
+
+col_order<- c("ID", "comments", "Benefits", "health", "insurance", "compensation", "wfh", "Climate","career", "culture", "wlb", "morale", "rif", "Company", "leadership", "management", "mission", "product", "DailyWork", "overtime", "resources", "process", "team", "colleagues", "interesting", "Other")
+
+FINAL_pro <- TEST_pro[, col_order]
+
+FINAL_con <- TEST_pro[, col_order]
+```
+
+
+<!-- # Category Summary -->
+
+```{r Category Table}
+#TAKE A LOOK AT THE DATA YOU'VE GATHERED
+#Start answering questions like, "Of the total comments, XX% mentioned benefits. Of those, XX% were about compensation, which seems to be a key blah blah blah. Out of all of the 2000 comments, XX% are about compensation."
+
+# TEST %>% tabyl(Benefits_Overall)
+```
+
+
+
+# Finalize Report in Excel
+
+```{r Write to Excel}
+
+#Also check here: https://stackoverflow.com/questions/37677326/applying-style-to-all-sheets-of-a-workbook-using-openxlsx-package-in-r
+
+
+##################################
+# Glassdoor Reviews Categorized Report
+##################################
+
+#Creating df for header
+
+INTRO <- c("Honeywell",
+
+         "Data Source: Glassdoor",
+
+         "Data As Of: June 2021",
+
+         "Prepared on: 7/23/2021",
+
+         "Prepared by: Jaclyn Spangler")
+
+wb <- openxlsx::createWorkbook() #Create a work book
+
+#CREATE WB & COMMENTS TABS
+
+addWorksheet(wb, "PRO Comments") #name the worksheet in Excel
+writeData(wb, "PRO Comments", INTRO) #Write your INTRO
+
+addWorksheet(wb, "CON Comments") #name the worksheet in Excel
+writeData(wb, "CON Comments", INTRO) #Write your INTRO
+
+
+#STYLE
+
+style1 <- createStyle(fontColour = "#349891", textDecoration = "Bold") #Fnt Colors (https://www.rgbtohex.net/) and make it bold. Call it style1
+
+addStyle(wb, style = style1, rows= 1:5, cols = 1, sheet = "PRO Comments") 
+addStyle(wb, style = style1, rows= 1:5, cols = 1, sheet = "CON Comments") #add this style to your worksheet. Tell it which rows and columns
+
+hs1 <- createStyle(textDecoration = "Bold") #create a new style for heading
+
+addStyle(wb, style = hs1, rows = 8, cols = 1:50, sheet = "PRO Comments") 
+addStyle(wb, style = hs1, rows = 8, cols = 1:50, sheet = "CON Comments") 
+
+style2 <- createStyle(fgFill = "#8CD8D3") #Fill Color for category columns
+
+# Couldn't get a list of columns to work, so doing it the hard way...
+addStyle(wb, style = style2, rows= 8:2008, cols = 3, sheet = "PRO Comments") 
+addStyle(wb, style = style2, rows= 8:2008, cols = 8, sheet = "PRO Comments") 
+addStyle(wb, style = style2, rows= 8:2008, cols = 14, sheet = "PRO Comments") 
+addStyle(wb, style = style2, rows= 8:2008, cols = 19, sheet = "PRO Comments") 
+addStyle(wb, style = style2, rows= 8:2008, cols = 26, sheet = "PRO Comments") 
+
+addStyle(wb, style = style2, rows= 8:2008, cols = 3, sheet = "CON Comments") 
+addStyle(wb, style = style2, rows= 8:2008, cols = 8, sheet = "CON Comments") 
+addStyle(wb, style = style2, rows= 8:2008, cols = 14, sheet = "CON Comments") 
+addStyle(wb, style = style2, rows= 8:2008, cols = 19, sheet = "CON Comments") 
+addStyle(wb, style = style2, rows= 8:2008, cols = 26, sheet = "CON Comments") 
+
+#WRITE DATE TO SHEETS
+
+writeData(wb, "PRO Comments", FINAL_pro, startRow = 8)
+writeData(wb, "CON Comments", FINAL_con, startRow = 8) 
+
+#FREEZE PANES IN SHEETS
+
+freezePane(wb, "PRO Comments", firstActiveRow = 9)
+freezePane(wb, "CON Comments", firstActiveRow = 9)
+
+#ADD FILTER TO SHEETS
+
+addFilter(wb, "PRO Comments", row = 8, cols = 1:50) 
+addFilter(wb, "CON Comments", row = 8, cols = 1:50) 
+
+#SET COLUMN WIDTH FOR COMMENTS & WRAP
+setColWidths(wb, "PRO Comments", cols = 2, widths = 75) 
+setColWidths(wb, "CON Comments", cols = 2, widths = 75) 
+
+style3 <- createStyle(wrapText = TRUE)
+
+addStyle(wb, "PRO Comments", style3, rows = 8:2008, cols = 2, gridExpand = TRUE)
+addStyle(wb, "CON Comments", style3, rows = 8:2008, cols = 2, gridExpand = TRUE)
+
+
+#SAVE FILE AND ADD DATE TO TITLE
+
+saveWorkbook(wb, paste0("C:/Users/Jaclyn/Desktop/GithubClone/psyc6841_hw4/Glassdoor Categorized Comments_", format(floor_date(Sys.Date()-months(1), "month"), "%B_%Y") , ".xlsx"), overwrite = TRUE)
+```
